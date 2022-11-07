@@ -1,0 +1,69 @@
+package me.tewpingz.redigo;
+
+import com.mongodb.MongoClientSettings;
+import com.mongodb.client.MongoCollection;
+import com.mongodb.client.model.DeleteOneModel;
+import com.mongodb.client.model.Filters;
+import com.mongodb.client.model.ReplaceOneModel;
+import com.mongodb.client.model.ReplaceOptions;
+import lombok.Getter;
+import me.tewpingz.redigo.codec.RediGoMongoCodec;
+import org.bson.codecs.configuration.CodecRegistries;
+import org.bson.codecs.configuration.CodecRegistry;
+import org.redisson.api.map.MapLoader;
+import org.redisson.api.map.MapWriter;
+
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.List;
+import java.util.Map;
+
+@Getter
+public class RediGoMongoStorage<K, V extends RediGoObject<K>> implements MapWriter<K, V>, MapLoader<K, V> {
+    private static final ReplaceOptions REPLACE_OPTIONS = new ReplaceOptions().upsert(true);
+
+    private final RediGo redigo;
+    private final Class<V> valueClass;
+    private final MongoCollection<V> mongoCollection;
+
+    /**
+     * Default constructor for the bridge mongo storage for our to ensure persistence
+     * @param redigo the bridge instance for most recent gson
+     * @param valueClass the value class to pass into the codecs
+     * @param namespace the namespace of the storage (Basically the collection name)
+     */
+    protected RediGoMongoStorage(RediGo redigo, Class<V> valueClass, String namespace) {
+        this.redigo = redigo;
+        this.valueClass = valueClass;
+
+        CodecRegistry codecRegistry = CodecRegistries.fromRegistries(
+                CodecRegistries.fromCodecs(new RediGoMongoCodec<>(this.redigo, this.valueClass)),
+                MongoClientSettings.getDefaultCodecRegistry());
+        MongoCollection<V> collection = redigo.getMongoClient().getDatabase(redigo.getNamespace()).getCollection(namespace, valueClass);
+        this.mongoCollection = collection.withCodecRegistry(codecRegistry);
+    }
+
+    @Override
+    public V load(K key) {
+        return this.mongoCollection.find(Filters.eq(key.toString())).first();
+    }
+
+    @Override
+    public Iterable<K> loadAllKeys() {
+        return this.mongoCollection.find().map(RediGoObject::getKey);
+    }
+
+    @Override
+    public void write(Map<K, V> map) {
+        List<ReplaceOneModel<V>> bulk = new ArrayList<>();
+        map.values().forEach(value -> bulk.add(new ReplaceOneModel<>(Filters.eq(value.getKey().toString()), value, REPLACE_OPTIONS)));
+        this.mongoCollection.bulkWrite(bulk);
+    }
+
+    @Override
+    public void delete(Collection<K> collection) {
+        List<DeleteOneModel<V>> bulk = new ArrayList<>();
+        collection.forEach(key -> bulk.add(new DeleteOneModel<>(Filters.eq(key.toString()))));
+        this.mongoCollection.bulkWrite(bulk);
+    }
+}
