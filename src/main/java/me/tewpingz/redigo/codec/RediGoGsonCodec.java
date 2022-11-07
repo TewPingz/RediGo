@@ -2,8 +2,8 @@ package me.tewpingz.redigo.codec;
 
 import com.google.gson.*;
 import me.tewpingz.redigo.RediGo;
-import me.tewpingz.redigo.RediGoObject;
-import me.tewpingz.redigo.RediGoValue;
+import me.tewpingz.redigo.data.RediGoObject;
+import me.tewpingz.redigo.data.RediGoValue;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;

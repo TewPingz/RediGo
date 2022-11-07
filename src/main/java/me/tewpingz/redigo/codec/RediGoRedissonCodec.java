@@ -7,7 +7,7 @@ import io.netty.buffer.ByteBufOutputStream;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import me.tewpingz.redigo.RediGo;
-import me.tewpingz.redigo.RediGoObject;
+import me.tewpingz.redigo.data.RediGoObject;
 import org.redisson.client.codec.BaseCodec;
 import org.redisson.client.handler.State;
 import org.redisson.client.protocol.Decoder;

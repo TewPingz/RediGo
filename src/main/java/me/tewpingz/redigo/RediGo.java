@@ -3,6 +3,7 @@ package me.tewpingz.redigo;
 import com.google.gson.Gson;
 import com.mongodb.client.MongoClient;
 import lombok.Data;
+import me.tewpingz.redigo.data.RediGoObject;
 import org.redisson.api.RedissonClient;
 
 import java.util.function.Function;

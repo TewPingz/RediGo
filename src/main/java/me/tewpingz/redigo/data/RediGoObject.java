@@ -1,4 +1,4 @@
-package me.tewpingz.redigo;
+package me.tewpingz.redigo.data;
 
 public interface RediGoObject<K> {
 

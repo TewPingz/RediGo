@@ -43,12 +43,12 @@ MongoDB to fetch the last model that was left by the redis instance.
 
 #### Get a RediGo real time object from the collection
 ```java
-    TestObject object = collection.getOrCreateValueConcurrently("itemKey");
+    TestObject object = collection.getOrCreateRealValue("itemKey");
 ```
 
 #### Update a RediGo real time object from the collection
 ```java
-    collection.updateDataConcurrently("itemKey", bridgeObj -> {
+    collection.updateRealValue("itemKey", bridgeObj -> {
         bridgeObj.name = "HelloWorld";
     });
 ```
@@ -63,7 +63,7 @@ MongoDB to fetch the last model that was left by the redis instance.
             Redigo redigo = new Redigo("namespace", mongoClient, redissonClient, gson);
             RedigoCollection<String, TestObject> collection = redigo.createCollection("namespace", String.class, TestObject.class, 30, TestObject::new);
     
-            collection.updateDataConcurrently("itemKey", bridgeObj -> {
+            collection.updateRealValue("itemKey", bridgeObj -> {
                 bridgeObj.name = "HelloWorld";
             });
         }

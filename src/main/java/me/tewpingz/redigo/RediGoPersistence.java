@@ -8,6 +8,7 @@ import com.mongodb.client.model.ReplaceOneModel;
 import com.mongodb.client.model.ReplaceOptions;
 import lombok.Getter;
 import me.tewpingz.redigo.codec.RediGoMongoCodec;
+import me.tewpingz.redigo.data.RediGoObject;
 import org.bson.codecs.configuration.CodecRegistries;
 import org.bson.codecs.configuration.CodecRegistry;
 import org.redisson.api.map.MapLoader;
@@ -19,7 +20,7 @@ import java.util.List;
 import java.util.Map;
 
 @Getter
-public class RediGoMongoStorage<K, V extends RediGoObject<K>> implements MapWriter<K, V>, MapLoader<K, V> {
+public class RediGoPersistence<K, V extends RediGoObject<K>> implements MapWriter<K, V>, MapLoader<K, V> {
     private static final ReplaceOptions REPLACE_OPTIONS = new ReplaceOptions().upsert(true);
 
     private final RediGo redigo;
@@ -32,7 +33,7 @@ public class RediGoMongoStorage<K, V extends RediGoObject<K>> implements MapWrit
      * @param valueClass the value class to pass into the codecs
      * @param namespace the namespace of the storage (Basically the collection name)
      */
-    protected RediGoMongoStorage(RediGo redigo, Class<V> valueClass, String namespace) {
+    protected RediGoPersistence(RediGo redigo, Class<V> valueClass, String namespace) {
         this.redigo = redigo;
         this.valueClass = valueClass;
 

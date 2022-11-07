@@ -2,7 +2,7 @@ package me.tewpingz.redigo.codec;
 
 import com.google.gson.*;
 import me.tewpingz.redigo.RediGo;
-import me.tewpingz.redigo.RediGoObject;
+import me.tewpingz.redigo.data.RediGoObject;
 import org.bson.BsonReader;
 import org.bson.BsonType;
 import org.bson.BsonWriter;

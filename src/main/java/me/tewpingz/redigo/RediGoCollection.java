@@ -2,8 +2,10 @@ package me.tewpingz.redigo;
 
 import me.tewpingz.redigo.codec.RediGoGsonCodec;
 import me.tewpingz.redigo.codec.RediGoRedissonCodec;
+import me.tewpingz.redigo.data.RediGoObject;
 import org.redisson.api.*;
 
+import java.util.Collection;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
@@ -38,10 +40,10 @@ public class RediGoCollection<K, V extends RediGoObject<K>> {
         redigo.setGson(redigo.getGson().newBuilder().registerTypeAdapter(valueClass, gsonCodec).create());
 
         // Set up our redis map with persistence
-        RediGoMongoStorage<K, V> redigoMongoStorage = new RediGoMongoStorage<>(redigo, valueClass, namespace);
+        RediGoPersistence<K, V> redigoPersistence = new RediGoPersistence<>(redigo, valueClass, namespace);
         RedissonClient redissonClient = this.redigo.getRedissonClient();
         RediGoRedissonCodec<K, V> codec = new RediGoRedissonCodec<>(this.redigo, valueClass);
-        MapOptions<K, V> options = MapOptions.<K, V>defaults().loader(redigoMongoStorage).writer(redigoMongoStorage).writeMode(MapOptions.WriteMode.WRITE_THROUGH);
+        MapOptions<K, V> options = MapOptions.<K, V>defaults().loader(redigoPersistence).writer(redigoPersistence).writeMode(MapOptions.WriteMode.WRITE_THROUGH);
         this.redisMap = redissonClient.getMapCache(namespace, codec, options);
 
         // Update listener
@@ -63,7 +65,7 @@ public class RediGoCollection<K, V extends RediGoObject<K>> {
      */
     public void beginCachingLocally(K key) {
         Objects.requireNonNull(key);
-        this.localCache.put(key, this.getOrCreateValueConcurrently(key));
+        this.localCache.put(key, this.getOrCreateRealValue(key));
     }
 
     /**
@@ -95,15 +97,32 @@ public class RediGoCollection<K, V extends RediGoObject<K>> {
     }
 
     /**
+     * A function to get all the cached values in the map
+     * @return a collection of all the cached values.
+     */
+    public Collection<V> getCachedValues() {
+        return this.localCache.values();
+    }
+
+    /**
+     * Loop through the currently cached items
+     * @param consumer the consumer to execute with the value
+     */
+    public void forEachCachedValue(Consumer<V> consumer) {
+        Objects.requireNonNull(consumer);
+        this.getCachedValues().forEach(consumer);
+    }
+
+    /**
      * Function to get data with locks to ensure concurrency
      * This means the data returned by this object is the most recent data on the servers
      * @param key the key of the data to find
      * @return the most recent data from the redis server
      */
-    public V getOrCreateValueConcurrently(K key) {
+    public V getOrCreateRealValue(K key) {
         Objects.requireNonNull(key);
 
-        return this.ensureConcurrency(key, () -> {
+        return this.executeSafely(key, () -> {
             V value = this.redisMap.get(key);
 
             // This means the value doesn't exist in the database
@@ -122,8 +141,8 @@ public class RediGoCollection<K, V extends RediGoObject<K>> {
      * @param key the key of the data to find
      * @return completable future for with the data
      */
-    public CompletableFuture<V> getOrCreateDataConcurrentlyAsync(K key) {
-        return CompletableFuture.supplyAsync(() -> this.getOrCreateValueConcurrently(key));
+    public CompletableFuture<V> getOrCreateRealValueAsync(K key) {
+        return CompletableFuture.supplyAsync(() -> this.getOrCreateRealValue(key));
     }
 
     /**
@@ -131,10 +150,10 @@ public class RediGoCollection<K, V extends RediGoObject<K>> {
      * @param key the key of the data being changed
      * @param consumer the consumer that will be called when the change should be queued
      */
-    public void updateDataConcurrently(K key, Consumer<V> consumer) {
+    public void updateRealValue(K key, Consumer<V> consumer) {
         Objects.requireNonNull(key);
 
-        this.topic.publish(this.ensureConcurrency(key, () -> {
+        this.topic.publish(this.executeSafely(key, () -> {
             V value = this.redisMap.getOrDefault(key, valueCreator.apply(key));
             consumer.accept(value);
             this.redisMap.fastPut(key, value, this.defaultTtl, TimeUnit.MINUTES);
@@ -147,18 +166,18 @@ public class RediGoCollection<K, V extends RediGoObject<K>> {
      * @param key the key of the data being changed
      * @param consumer the consumer that will be called when the change should be queued
      */
-    public CompletableFuture<Void> updateDataConcurrentlyAsync(K key, Consumer<V> consumer) {
-        return CompletableFuture.runAsync(() -> this.updateDataConcurrently(key, consumer));
+    public CompletableFuture<Void> updateRealValueAsync(K key, Consumer<V> consumer) {
+        return CompletableFuture.runAsync(() -> this.updateRealValue(key, consumer));
     }
 
     /**
-     * Function to ensure concurrency when changing values
+     * Function to ensure safety when changing values
      * @param key the key of the value that will be changed
      * @param supplier the supplier that will be called between the locks
      * @return the value returned from the supplier.
      * @param <T> The type of data being returned from the supplier.
      */
-    private  <T> T ensureConcurrency(K key, Supplier<T> supplier) {
+    private  <T> T executeSafely(K key, Supplier<T> supplier) {
         Objects.requireNonNull(key);
         Objects.requireNonNull(supplier);
 

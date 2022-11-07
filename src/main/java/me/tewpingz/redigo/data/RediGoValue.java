@@ -1,4 +1,4 @@
-package me.tewpingz.redigo;
+package me.tewpingz.redigo.data;
 
 import java.lang.annotation.ElementType;
 import java.lang.annotation.Retention;
