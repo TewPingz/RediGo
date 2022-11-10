@@ -59,7 +59,7 @@ public class RediGoGsonCodec<K, V extends RediGoObject<K, ?>> implements JsonSer
                 RediGoValue redigoValue = field.getAnnotation(RediGoValue.class);
                 String fieldKey = redigoValue.key();
                 if (jsonObject.has(fieldKey)) {
-                    Object fieldValue = this.redigo.getGson().fromJson(jsonObject.get(fieldKey), field.getType());
+                    Object fieldValue = this.redigo.getGson().fromJson(jsonObject.get(fieldKey), field.getGenericType());
                     field.set(value, fieldValue);
                 }
             }
