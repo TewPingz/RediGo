@@ -20,7 +20,7 @@ import java.util.List;
 import java.util.Map;
 
 @Getter
-public class RediGoPersistence<K, V extends RediGoObject<K>> implements MapWriter<K, V>, MapLoader<K, V> {
+public class RediGoPersistence<K, V extends RediGoObject<K, ?>> implements MapWriter<K, V>, MapLoader<K, V> {
     private static final ReplaceOptions REPLACE_OPTIONS = new ReplaceOptions().upsert(true);
 
     private final RediGo redigo;

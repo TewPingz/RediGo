@@ -12,7 +12,7 @@ import org.bson.codecs.EncoderContext;
 
 import java.math.BigInteger;
 
-public class RediGoMongoCodec<K, V extends RediGoObject<K>> implements Codec<V> {
+public class RediGoMongoCodec<K, V extends RediGoObject<K, ?>> implements Codec<V> {
 
     private final RediGo redigo;
     private final Class<V> valueClass;

@@ -14,7 +14,7 @@ import java.util.HashSet;
 import java.util.Map;
 import java.util.function.Function;
 
-public class RediGoGsonCodec<K, V extends RediGoObject<K>> implements JsonSerializer<V>, JsonDeserializer<V> {
+public class RediGoGsonCodec<K, V extends RediGoObject<K, ?>> implements JsonSerializer<V>, JsonDeserializer<V> {
 
     private final RediGo redigo;
     private final Class<K> keyClass;

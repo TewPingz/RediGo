@@ -11,28 +11,38 @@ import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
-public class RediGoCollection<K, V extends RediGoObject<K>> {
+public class RediGoCollection<S extends RediGoObject.Snapshot, K, V extends RediGoObject<K, S>> {
     private static final String LOCK_PREFIX = "LOCK_";
 
     private final RediGo redigo;
     private final String namespace;
     private final Function<K, V> valueCreator;
 
-    // Redis caches
+    // Configurations
+    private final boolean defaultCaching;
     private final int defaultTtl;
-    private final RMapCache<K, V> redisMap;
-    private final Map<K, V> localCache;
-    private final RTopic topic;
 
-    protected RediGoCollection(RediGo redigo, String namespace, Class<K> keyClass, Class<V> valueClass, int defaultTtl, Function<K, V> valueCreator) {
+    // Redis caches
+    private final RediGoPersistence<K, V> persistence;
+    private final RMapCache<K, V> redisMap;
+
+    // Redis local caches
+    private final Map<K, S> localCache;
+    private final RTopic createTopic;
+    private final RTopic updateTopic;
+
+    protected RediGoCollection(RediGo redigo, String namespace, Class<K> keyClass, Class<V> valueClass, int defaultTtl, boolean defaultCaching, Function<K, V> valueCreator) {
         this.redigo = redigo;
         this.namespace = namespace;
         this.valueCreator = valueCreator;
         this.defaultTtl = defaultTtl;
+        this.defaultCaching = defaultCaching;
         this.localCache = new ConcurrentHashMap<>();
 
         // Set up our GSON decoder for the value class
@@ -40,23 +50,32 @@ public class RediGoCollection<K, V extends RediGoObject<K>> {
         redigo.setGson(redigo.getGson().newBuilder().registerTypeAdapter(valueClass, gsonCodec).create());
 
         // Set up our redis map with persistence
-        RediGoPersistence<K, V> redigoPersistence = new RediGoPersistence<>(redigo, valueClass, namespace);
+        this.persistence = new RediGoPersistence<>(redigo, valueClass, namespace);
         RedissonClient redissonClient = this.redigo.getRedissonClient();
         RediGoRedissonCodec<K, V> codec = new RediGoRedissonCodec<>(this.redigo, valueClass);
-        MapOptions<K, V> options = MapOptions.<K, V>defaults().loader(redigoPersistence).writer(redigoPersistence).writeMode(MapOptions.WriteMode.WRITE_THROUGH);
+        MapOptions<K, V> options = MapOptions.<K, V>defaults().loader(this.persistence).writer(this.persistence).writeMode(MapOptions.WriteMode.WRITE_THROUGH);
         this.redisMap = redissonClient.getMapCache(namespace, codec, options);
 
-        // Update listener
-        this.topic = redissonClient.getTopic(namespace, codec);
-        this.topic.addListener(valueClass, (charSequence, value) -> {
-            /*
-                Update value only if value is already existing. We only want to update changes to the currently cached value
-                We do not want to cache it if the current server does not want it to be cached.
-             */
-            if (this.localCache.containsKey(value.getKey())) {
-                this.localCache.put(value.getKey(), value);
+        // Create listener
+        this.createTopic = redissonClient.getTopic("%s_create_topic".formatted(this.namespace), codec);
+        this.createTopic.addListener(valueClass, (channel, value) -> {
+            if (this.defaultCaching) {
+                this.localCache.put(value.getKey(), value.getSnapshot());
             }
         });
+
+        // Update listener
+        this.updateTopic = redissonClient.getTopic("%s_update_topic".formatted(this.namespace), codec);
+        this.updateTopic.addListener(valueClass, (charSequence, value) -> {
+            if (this.localCache.containsKey(value.getKey())) {
+                this.localCache.put(value.getKey(), value.getSnapshot());
+            }
+        });
+
+        // Cache all values if default caching is enabled
+        if (this.defaultCaching) {
+            this.persistence.loadAllKeys().forEach(this::beginCachingLocally);
+        }
     }
 
     /**
@@ -65,7 +84,7 @@ public class RediGoCollection<K, V extends RediGoObject<K>> {
      */
     public void beginCachingLocally(K key) {
         Objects.requireNonNull(key);
-        this.localCache.put(key, this.getOrCreateRealValue(key));
+        this.localCache.put(key, this.getOrCreateRealValue(key).getSnapshot());
     }
 
     /**
@@ -82,6 +101,9 @@ public class RediGoCollection<K, V extends RediGoObject<K>> {
      * @param key the key of the data to stop caching.
      */
     public void stopCachingLocally(K key) {
+        if (this.defaultCaching) {
+            throw  new IllegalStateException("Tried to uncache a value in a collection that has default caching enabled.");
+        }
         Objects.requireNonNull(key);
         this.localCache.remove(key);
     }
@@ -91,7 +113,7 @@ public class RediGoCollection<K, V extends RediGoObject<K>> {
      * @param key the key of the data to get
      * @return the cached value.
      */
-    public V getCachedValued(K key) {
+    public S getCachedValued(K key) {
         Objects.requireNonNull(key);
         return this.localCache.get(key);
     }
@@ -100,7 +122,7 @@ public class RediGoCollection<K, V extends RediGoObject<K>> {
      * A function to get all the cached values in the map
      * @return a collection of all the cached values.
      */
-    public Collection<V> getCachedValues() {
+    public Collection<S> getCachedValues() {
         return this.localCache.values();
     }
 
@@ -108,7 +130,7 @@ public class RediGoCollection<K, V extends RediGoObject<K>> {
      * Loop through the currently cached items
      * @param consumer the consumer to execute with the value
      */
-    public void forEachCachedValue(Consumer<V> consumer) {
+    public void forEachCachedValue(Consumer<S> consumer) {
         Objects.requireNonNull(consumer);
         this.getCachedValues().forEach(consumer);
     }
@@ -122,17 +144,26 @@ public class RediGoCollection<K, V extends RediGoObject<K>> {
     public V getOrCreateRealValue(K key) {
         Objects.requireNonNull(key);
 
-        return this.executeSafely(key, () -> {
+        AtomicBoolean created = new AtomicBoolean(false);
+
+        V fetchedValue = this.executeSafely(key, () -> {
             V value = this.redisMap.get(key);
 
             // This means the value doesn't exist in the database
             if (value == null) {
                 value = this.valueCreator.apply(key);
                 this.redisMap.fastPut(key, value, defaultTtl, TimeUnit.MINUTES);
+                created.set(true);
             }
 
             return value;
         });
+
+        if (created.get()) {
+            this.createTopic.publish(fetchedValue);
+        }
+
+        return fetchedValue;
     }
 
     /**
@@ -153,12 +184,35 @@ public class RediGoCollection<K, V extends RediGoObject<K>> {
     public void updateRealValue(K key, Consumer<V> consumer) {
         Objects.requireNonNull(key);
 
-        this.topic.publish(this.executeSafely(key, () -> {
+        this.updateTopic.publish(this.executeSafely(key, () -> {
             V value = this.redisMap.getOrDefault(key, valueCreator.apply(key));
             consumer.accept(value);
             this.redisMap.fastPut(key, value, this.defaultTtl, TimeUnit.MINUTES);
             return value;
         }));
+    }
+
+    /**
+
+     * Function to update data real time and get a return value
+     * @param key the key of the data being changed
+     * @param function the function that will be executed while updating the real value
+     * @return the return value returned from the function
+     * @param <T> the type of the return value from the function
+     */
+    public <T> T updateRealValueWithFunction(K key, Function<V, T> function) {
+        Objects.requireNonNull(key);
+
+        AtomicReference<T> returnValue = new AtomicReference<>(null);
+
+        this.updateTopic.publish(this.executeSafely(key, () -> {
+            V value = this.redisMap.getOrDefault(key, valueCreator.apply(key));
+            returnValue.set(function.apply(value));
+            this.redisMap.fastPut(key, value, this.defaultTtl, TimeUnit.MINUTES);
+            return value;
+        }));
+
+        return returnValue.get();
     }
 
     /**
@@ -168,6 +222,17 @@ public class RediGoCollection<K, V extends RediGoObject<K>> {
      */
     public CompletableFuture<Void> updateRealValueAsync(K key, Consumer<V> consumer) {
         return CompletableFuture.runAsync(() -> this.updateRealValue(key, consumer));
+    }
+
+    /**
+     * Function to update data real time and get a return value asynchronously
+     * @param key the key of the data being changed
+     * @param function the consumer that will be called when the change should be queued
+     * @return the return value returned from the function
+     * @param <T> the type of the return value from the function
+     */
+    public <T> CompletableFuture<T> updateRealValueWithFunctionAsync(K key, Function<V, T> function) {
+        return CompletableFuture.supplyAsync(() -> this.updateRealValueWithFunction(key, function));
     }
 
     /**

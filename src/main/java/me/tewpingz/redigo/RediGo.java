@@ -24,8 +24,8 @@ public class RediGo {
         this.gson = gson.newBuilder().disableHtmlEscaping().create();
     }
 
-    public <K, V extends RediGoObject<K>> RediGoCollection<K, V> createCollection(
-            String namespace, Class<K> keyClass, Class<V> valueClass, int defaultTtl, Function<K, V> valueCreator) {
-        return new RediGoCollection<>(this, namespace, keyClass, valueClass, defaultTtl, valueCreator);
+    public <S extends RediGoObject.Snapshot, K, V extends RediGoObject<K, S>> RediGoCollection<S, K, V> createCollection(
+            String namespace, Class<K> keyClass, Class<V> valueClass, int defaultTtl, boolean defaultCaching, Function<K, V> valueCreator) {
+        return new RediGoCollection<>(this, namespace, keyClass, valueClass, defaultTtl, defaultCaching, valueCreator);
     }
 }

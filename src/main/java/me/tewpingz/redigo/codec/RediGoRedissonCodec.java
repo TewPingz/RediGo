@@ -15,7 +15,7 @@ import org.redisson.client.protocol.Encoder;
 
 import java.io.IOException;
 
-public class RediGoRedissonCodec<K, V extends RediGoObject<K>> extends BaseCodec {
+public class RediGoRedissonCodec<K, V extends RediGoObject<K, ?>> extends BaseCodec {
 
     @Getter
     private final RediGo redigo;
@@ -49,7 +49,7 @@ public class RediGoRedissonCodec<K, V extends RediGoObject<K>> extends BaseCodec
     }
 
     @RequiredArgsConstructor
-    private static class GsonDecoder<K, V extends RediGoObject<K>> implements Decoder<Object> {
+    private static class GsonDecoder<K, V extends RediGoObject<K, ?>> implements Decoder<Object> {
 
         private final RediGoRedissonCodec<K, V> codec;
         private final Class<V> valueClass;
@@ -64,7 +64,7 @@ public class RediGoRedissonCodec<K, V extends RediGoObject<K>> extends BaseCodec
     }
 
     @RequiredArgsConstructor
-    private static class GsonEncoder<K, V extends RediGoObject<K>> implements Encoder {
+    private static class GsonEncoder<K, V extends RediGoObject<K, ?>> implements Encoder {
 
         private final RediGoRedissonCodec<K, V> codec;
 
