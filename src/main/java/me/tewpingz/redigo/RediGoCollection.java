@@ -67,7 +67,7 @@ public class RediGoCollection<S extends RediGoObject.Snapshot, K, V extends Redi
         // Update listener
         this.updateTopic = redissonClient.getTopic("%s_update_topic".formatted(this.namespace), codec);
         this.updateTopic.addListener(valueClass, (charSequence, value) -> {
-            if (this.localCache.containsKey(value.getKey())) {
+            if (this.defaultCaching || this.localCache.containsKey(value.getKey())) {
                 this.localCache.put(value.getKey(), value.getSnapshot());
             }
         });
