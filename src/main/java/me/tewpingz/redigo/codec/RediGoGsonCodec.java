@@ -18,18 +18,18 @@ public class RediGoGsonCodec<K, V extends RediGoObject<K, ?>> implements JsonSer
 
     private final RediGo redigo;
     private final Class<K> keyClass;
-    private final Function<K, V> valueCreator;
+    private final Function<K, V> emptyCreator;
 
     /**
      * Default constructor for the gson codec
      * @param redigo the bridge instance to get the most recent gson instance from
      * @param keyClass the key class to be able to decode and encode key
-     * @param valueCreator the value creator to create default value when decoding
+     * @param emptyCreator the value creator to create default value when decoding
      */
-    public RediGoGsonCodec(RediGo redigo, Class<K> keyClass, Function<K, V> valueCreator) {
+    public RediGoGsonCodec(RediGo redigo, Class<K> keyClass, Function<K, V> emptyCreator) {
         this.redigo = redigo;
         this.keyClass = keyClass;
-        this.valueCreator = valueCreator;
+        this.emptyCreator = emptyCreator;
     }
 
     @Override
@@ -54,7 +54,7 @@ public class RediGoGsonCodec<K, V extends RediGoObject<K, ?>> implements JsonSer
             JsonObject jsonObject = jsonElement.getAsJsonObject();
             JsonElement idElement = jsonObject.get("_id");
             K key = this.redigo.getGson().fromJson(idElement, this.keyClass);
-            V value = this.valueCreator.apply(key);
+            V value = this.emptyCreator.apply(key);
             for (Field field : this.getFields(value)) {
                 RediGoValue redigoValue = field.getAnnotation(RediGoValue.class);
                 String fieldKey = redigoValue.key();

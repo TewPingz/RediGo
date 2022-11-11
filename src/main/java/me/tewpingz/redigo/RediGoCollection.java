@@ -12,7 +12,6 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -22,7 +21,7 @@ public class RediGoCollection<S extends RediGoObject.Snapshot, K, V extends Redi
 
     private final RediGo redigo;
     private final String namespace;
-    private final Function<K, V> valueCreator;
+    private final Function<K, V> initialCreator, emptyCreator;
 
     // Configurations
     private final boolean defaultCaching;
@@ -37,16 +36,21 @@ public class RediGoCollection<S extends RediGoObject.Snapshot, K, V extends Redi
     private final RTopic createTopic;
     private final RTopic updateTopic;
 
-    protected RediGoCollection(RediGo redigo, String namespace, Class<K> keyClass, Class<V> valueClass, int defaultTtl, boolean defaultCaching, Function<K, V> valueCreator) {
+    protected RediGoCollection(RediGo redigo, String namespace, Class<K> keyClass, Class<V> valueClass,
+                               int defaultTtl, boolean defaultCaching, Function<K, V> initialCreator, Function<K, V> emptyCreator) {
         this.redigo = redigo;
         this.namespace = namespace;
-        this.valueCreator = valueCreator;
+        this.initialCreator = initialCreator;
+        this.emptyCreator = emptyCreator;
         this.defaultTtl = defaultTtl;
         this.defaultCaching = defaultCaching;
         this.localCache = new ConcurrentHashMap<>();
 
-        // Set up our GSON decoder for the value class
-        RediGoGsonCodec<K, V> gsonCodec = new RediGoGsonCodec<>(redigo, keyClass, valueCreator);
+        /*
+          Set up our GSON decoder for the value class
+          Use empty creator to ensure you don't fetch any values from external apis, just make an empty object to append onto
+         */
+        RediGoGsonCodec<K, V> gsonCodec = new RediGoGsonCodec<>(redigo, keyClass, emptyCreator);
         redigo.setGson(redigo.getGson().newBuilder().registerTypeAdapter(valueClass, gsonCodec).create());
 
         // Set up our redis map with persistence
@@ -151,7 +155,7 @@ public class RediGoCollection<S extends RediGoObject.Snapshot, K, V extends Redi
 
             // This means the value doesn't exist in the database
             if (value == null) {
-                value = this.valueCreator.apply(key);
+                value = this.initialCreator.apply(key);
                 this.redisMap.fastPut(key, value, defaultTtl, TimeUnit.MINUTES);
                 created.set(true);
             }
@@ -185,7 +189,7 @@ public class RediGoCollection<S extends RediGoObject.Snapshot, K, V extends Redi
         Objects.requireNonNull(key);
 
         V fetchedValue = this.executeSafely(key, () -> {
-            V value = this.redisMap.getOrDefault(key, valueCreator.apply(key));
+            V value = this.redisMap.getOrDefault(key, initialCreator.apply(key));
             consumer.accept(value);
             this.redisMap.fastPut(key, value, this.defaultTtl, TimeUnit.MINUTES);
             return value;
@@ -196,45 +200,12 @@ public class RediGoCollection<S extends RediGoObject.Snapshot, K, V extends Redi
     }
 
     /**
-
-     * Function to update data real time and get a return value
-     * @param key the key of the data being changed
-     * @param function the function that will be executed while updating the real value
-     * @return the return value returned from the function
-     * @param <T> the type of the return value from the function
-     */
-    public <T> T updateRealValueWithFunction(K key, Function<V, T> function) {
-        Objects.requireNonNull(key);
-
-        AtomicReference<T> returnValue = new AtomicReference<>(null);
-        this.updateTopic.publish(this.executeSafely(key, () -> {
-            V value = this.redisMap.getOrDefault(key, valueCreator.apply(key));
-            returnValue.set(function.apply(value));
-            this.redisMap.fastPut(key, value, this.defaultTtl, TimeUnit.MINUTES);
-            return value;
-        }));
-
-        return returnValue.get();
-    }
-
-    /**
      * Function to update data real time asynchronously
      * @param key the key of the data being changed
      * @param consumer the consumer that will be called when the change should be queued
      */
     public CompletableFuture<V> updateRealValueAsync(K key, Consumer<V> consumer) {
         return CompletableFuture.supplyAsync(() -> this.updateRealValue(key, consumer));
-    }
-
-    /**
-     * Function to update data real time and get a return value asynchronously
-     * @param key the key of the data being changed
-     * @param function the consumer that will be called when the change should be queued
-     * @return the return value returned from the function
-     * @param <T> the type of the return value from the function
-     */
-    public <T> CompletableFuture<T> updateRealValueWithFunctionAsync(K key, Function<V, T> function) {
-        return CompletableFuture.supplyAsync(() -> this.updateRealValueWithFunction(key, function));
     }
 
     /**
