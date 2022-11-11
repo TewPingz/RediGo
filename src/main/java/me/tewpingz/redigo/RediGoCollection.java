@@ -181,15 +181,18 @@ public class RediGoCollection<S extends RediGoObject.Snapshot, K, V extends Redi
      * @param key the key of the data being changed
      * @param consumer the consumer that will be called when the change should be queued
      */
-    public void updateRealValue(K key, Consumer<V> consumer) {
+    public V updateRealValue(K key, Consumer<V> consumer) {
         Objects.requireNonNull(key);
 
-        this.updateTopic.publish(this.executeSafely(key, () -> {
+        V fetchedValue = this.executeSafely(key, () -> {
             V value = this.redisMap.getOrDefault(key, valueCreator.apply(key));
             consumer.accept(value);
             this.redisMap.fastPut(key, value, this.defaultTtl, TimeUnit.MINUTES);
             return value;
-        }));
+        });
+
+        this.updateTopic.publish(fetchedValue);
+        return fetchedValue;
     }
 
     /**
@@ -204,7 +207,6 @@ public class RediGoCollection<S extends RediGoObject.Snapshot, K, V extends Redi
         Objects.requireNonNull(key);
 
         AtomicReference<T> returnValue = new AtomicReference<>(null);
-
         this.updateTopic.publish(this.executeSafely(key, () -> {
             V value = this.redisMap.getOrDefault(key, valueCreator.apply(key));
             returnValue.set(function.apply(value));
@@ -220,8 +222,8 @@ public class RediGoCollection<S extends RediGoObject.Snapshot, K, V extends Redi
      * @param key the key of the data being changed
      * @param consumer the consumer that will be called when the change should be queued
      */
-    public CompletableFuture<Void> updateRealValueAsync(K key, Consumer<V> consumer) {
-        return CompletableFuture.runAsync(() -> this.updateRealValue(key, consumer));
+    public CompletableFuture<V> updateRealValueAsync(K key, Consumer<V> consumer) {
+        return CompletableFuture.supplyAsync(() -> this.updateRealValue(key, consumer));
     }
 
     /**
