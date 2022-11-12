@@ -83,7 +83,10 @@ public class RediGoCollection<S extends RediGoObject.Snapshot, K, V extends Redi
 
     /**
      * Function to begin caching data locally
-     * @param key the key of the data to start caching.
+     * This function will make a get request from the database to get the latest value
+     * It is necessary you call this function asynchronously or call {@link RediGoCollection#beginCachingLocallyAsync(K)}
+     *
+     * @param key the key of the data to begin caching for.
      */
     public void beginCachingLocally(K key) {
         Objects.requireNonNull(key);
@@ -100,7 +103,10 @@ public class RediGoCollection<S extends RediGoObject.Snapshot, K, V extends Redi
     }
 
     /**
-     * Function to stop caching the data locally
+     * Function to stop caching the data locally, this will ensure that any new requests that update the value
+     * are ignored and stop caching the value in the map. Make sure that {@link RediGoCollection#defaultCaching} is false
+     * otherwise this will cause an error as default caching is enabled it shouldn't allow you to uncache anything
+     *
      * @param key the key of the data to stop caching.
      */
     public void stopCachingLocally(K key) {
@@ -112,9 +118,13 @@ public class RediGoCollection<S extends RediGoObject.Snapshot, K, V extends Redi
     }
 
     /**
-     * Get the cached value (This will not be the most recent but the best for main threaded tasks)
-     * @param key the key of the data to get
-     * @return the cached value.
+     * A function that allows you to get the current cached value of the key provided.
+     * Keep in mind this is not the latest value this is the latest cached value.
+     * Look at {@link RediGoCollection#getOrCreateRealValue(K)} for the real value
+     * and if you are looking to update the value look at {@link RediGoCollection#updateRealValue(K, Consumer)}
+     *
+     * @param key the key of the object that you would like.
+     * @return a snapshot of the latest cached object.
      */
     public S getCachedValued(K key) {
         Objects.requireNonNull(key);
@@ -122,15 +132,20 @@ public class RediGoCollection<S extends RediGoObject.Snapshot, K, V extends Redi
     }
 
     /**
-     * A function to get all the cached values in the map
-     * @return a collection of all the cached values.
+     * A function that allows you to get all the {@link RediGoObject.Snapshot} values inside the map.
+     * This allows you to count the amount of entries there are and loop through it.
+     * If you are only looking to just look through it, look at {@link RediGoCollection#forEachCachedValue(Consumer)}
+     *
+     * @return a collection of the latest cached {@link RediGoObject.Snapshot} of the values cached.
      */
     public Collection<S> getCachedValues() {
         return this.localCache.values();
     }
 
     /**
-     * Loop through the currently cached items
+     * A function that allows you to apply a consumer
+     * to all {@link RediGoObject.Snapshot} values inside the cached map.
+     *
      * @param consumer the consumer to execute with the value
      */
     public void forEachCachedValue(Consumer<S> consumer) {
@@ -139,10 +154,11 @@ public class RediGoCollection<S extends RediGoObject.Snapshot, K, V extends Redi
     }
 
     /**
-     * Function to get data with locks to ensure concurrency
-     * This means the data returned by this object is the most recent data on the servers
+     * Function to get data with locks to ensure reliability of {@link RediGoObject}
+     * This means the data returned by {@link RediGoObject} is the most recent data on the servers
+     *
      * @param key the key of the data to find
-     * @return the most recent data from the redis server
+     * @return a {@link RediGoObject.Snapshot} of the latest value.
      */
     public S getOrCreateRealValue(K key) {
         Objects.requireNonNull(key);
@@ -170,19 +186,26 @@ public class RediGoCollection<S extends RediGoObject.Snapshot, K, V extends Redi
     }
 
     /**
-     * Function to get data with locks to ensure concurrency asynchronously
-     * This means the data returned by this object is the most recent data on the servers
+     * Function to get data with locks to ensure reliability of {@link RediGoObject}
+     * This means the data returned by {@link RediGoObject} is the most recent data on the servers
+     * This function is called asynchronously
+     *
      * @param key the key of the data to find
-     * @return completable future for with the data
+     * @return a completable future with a {@link RediGoObject.Snapshot} of the latest value.
      */
     public CompletableFuture<S> getOrCreateRealValueAsync(K key) {
         return CompletableFuture.supplyAsync(() -> this.getOrCreateRealValue(key));
     }
 
     /**
-     * Function to update data real time
-     * @param key the key of the data being changed
-     * @param consumer the consumer that will be called when the change should be queued
+     * A function that allows you to update the data of {@link RediGoObject} by making sure the update
+     * is being applied to the latest version of the {@link RediGoObject}. This means
+     * data can never be overwritten or lost simply because all the data that is being applied
+     * is always to the real value.
+     *
+     * @param key the key of the object to get and update
+     * @param consumer the consumer that will be called to change the value
+     * @return a snapshot of the latest value with the changes applied.
      */
     public S updateRealValue(K key, Consumer<V> consumer) {
         Objects.requireNonNull(key);
@@ -199,21 +222,20 @@ public class RediGoCollection<S extends RediGoObject.Snapshot, K, V extends Redi
     }
 
     /**
-     * Function to update data real time asynchronously
-     * @param key the key of the data being changed
-     * @param consumer the consumer that will be called when the change should be queued
+     * A function that allows you to update the data of {@link RediGoObject} by making sure the update
+     * is being applied to the latest version of the {@link RediGoObject}. This means
+     * data can never be overwritten or lost simply because all the data that is being applied
+     * is always to the real value.
+     * This function is called asynchronously.
+     *
+     * @param key the key of the object to get and update
+     * @param consumer the consumer that will be called to change the value
+     * @return a completable future with a snapshot of the latest value with the changes applied.
      */
     public CompletableFuture<S> updateRealValueAsync(K key, Consumer<V> consumer) {
         return CompletableFuture.supplyAsync(() -> this.updateRealValue(key, consumer));
     }
 
-    /**
-     * Function to ensure safety when changing values
-     * @param key the key of the value that will be changed
-     * @param supplier the supplier that will be called between the locks
-     * @return the value returned from the supplier.
-     * @param <T> The type of data being returned from the supplier.
-     */
     private  <T> T executeSafely(K key, Supplier<T> supplier) {
         Objects.requireNonNull(key);
         Objects.requireNonNull(supplier);
