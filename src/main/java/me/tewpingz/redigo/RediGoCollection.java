@@ -184,7 +184,7 @@ public class RediGoCollection<S extends RediGoObject.Snapshot, K, V extends Redi
      * @param key the key of the data being changed
      * @param consumer the consumer that will be called when the change should be queued
      */
-    public V updateRealValue(K key, Consumer<V> consumer) {
+    public S updateRealValue(K key, Consumer<V> consumer) {
         Objects.requireNonNull(key);
 
         V fetchedValue = this.executeSafely(key, () -> {
@@ -195,7 +195,7 @@ public class RediGoCollection<S extends RediGoObject.Snapshot, K, V extends Redi
         });
 
         this.updateTopic.publish(fetchedValue);
-        return fetchedValue;
+        return fetchedValue.getSnapshot();
     }
 
     /**
@@ -203,7 +203,7 @@ public class RediGoCollection<S extends RediGoObject.Snapshot, K, V extends Redi
      * @param key the key of the data being changed
      * @param consumer the consumer that will be called when the change should be queued
      */
-    public CompletableFuture<V> updateRealValueAsync(K key, Consumer<V> consumer) {
+    public CompletableFuture<S> updateRealValueAsync(K key, Consumer<V> consumer) {
         return CompletableFuture.supplyAsync(() -> this.updateRealValue(key, consumer));
     }
 
