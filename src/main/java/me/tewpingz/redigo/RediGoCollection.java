@@ -21,7 +21,7 @@ public class RediGoCollection<S extends RediGoObject.Snapshot, K, V extends Redi
 
     private final RediGo redigo;
     private final String namespace;
-    private final Function<K, V> initialCreator, emptyCreator;
+    private final Function<K, V> initialCreator;
 
     // Configurations
     private final boolean defaultCaching;
@@ -41,7 +41,6 @@ public class RediGoCollection<S extends RediGoObject.Snapshot, K, V extends Redi
         this.redigo = redigo;
         this.namespace = namespace;
         this.initialCreator = initialCreator;
-        this.emptyCreator = emptyCreator;
         this.defaultTtl = defaultTtl;
         this.defaultCaching = defaultCaching;
         this.localCache = new ConcurrentHashMap<>();
@@ -88,7 +87,7 @@ public class RediGoCollection<S extends RediGoObject.Snapshot, K, V extends Redi
      */
     public void beginCachingLocally(K key) {
         Objects.requireNonNull(key);
-        this.localCache.put(key, this.getOrCreateRealValue(key).getSnapshot());
+        this.localCache.put(key, this.getOrCreateRealValue(key));
     }
 
     /**
@@ -145,7 +144,7 @@ public class RediGoCollection<S extends RediGoObject.Snapshot, K, V extends Redi
      * @param key the key of the data to find
      * @return the most recent data from the redis server
      */
-    public V getOrCreateRealValue(K key) {
+    public S getOrCreateRealValue(K key) {
         Objects.requireNonNull(key);
 
         AtomicBoolean created = new AtomicBoolean(false);
@@ -167,7 +166,7 @@ public class RediGoCollection<S extends RediGoObject.Snapshot, K, V extends Redi
             this.createTopic.publish(fetchedValue);
         }
 
-        return fetchedValue;
+        return fetchedValue.getSnapshot();
     }
 
     /**
@@ -176,7 +175,7 @@ public class RediGoCollection<S extends RediGoObject.Snapshot, K, V extends Redi
      * @param key the key of the data to find
      * @return completable future for with the data
      */
-    public CompletableFuture<V> getOrCreateRealValueAsync(K key) {
+    public CompletableFuture<S> getOrCreateRealValueAsync(K key) {
         return CompletableFuture.supplyAsync(() -> this.getOrCreateRealValue(key));
     }
 
