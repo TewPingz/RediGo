@@ -41,7 +41,7 @@ public class RediGo {
      */
     public <S extends RediGoObject.Snapshot, K, V extends RediGoObject<K, S>> RediGoCollection<S, K, V> createCollection(
             String namespace, Class<K> keyClass, Class<V> valueClass, int defaultTtl, boolean defaultCaching, Function<K, V> creator) {
-        return new RediGoCollection<>(this, namespace, keyClass, valueClass, defaultTtl, defaultCaching, creator, creator);
+        return this.createCollection(namespace, keyClass, valueClass, defaultTtl, defaultCaching, creator, creator);
     }
 
     /**
@@ -62,6 +62,6 @@ public class RediGo {
      */
     public <S extends RediGoObject.Snapshot, K, V extends RediGoObject<K, S>> RediGoCollection<S, K, V> createCollection(
             String namespace, Class<K> keyClass, Class<V> valueClass, int defaultTtl, boolean defaultCaching, Function<K, V> initialCreator, Function<K, V> emptyCreator) {
-        return new RediGoCollection<>(this, namespace, keyClass, valueClass, defaultTtl, defaultCaching, initialCreator, emptyCreator);
+        return new RediGoCollection<>(this, this.namespace + "-" + namespace, keyClass, valueClass, defaultTtl, defaultCaching, initialCreator, emptyCreator);
     }
 }
