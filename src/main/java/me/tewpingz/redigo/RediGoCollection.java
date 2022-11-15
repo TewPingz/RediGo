@@ -20,7 +20,7 @@ public class RediGoCollection<S extends RediGoObject.Snapshot, K, V extends Redi
     private static final String LOCK_PREFIX = "LOCK_";
 
     private final RediGo redigo;
-    private final String namespace;
+    private final String redisNamespace;
     private final Function<K, V> initialCreator;
 
     // Configurations
@@ -39,7 +39,7 @@ public class RediGoCollection<S extends RediGoObject.Snapshot, K, V extends Redi
     protected RediGoCollection(RediGo redigo, String namespace, Class<K> keyClass, Class<V> valueClass,
                                int defaultTtl, boolean defaultCaching, Function<K, V> initialCreator, Function<K, V> emptyCreator) {
         this.redigo = redigo;
-        this.namespace = namespace;
+        this.redisNamespace = redigo.getNamespace() + "_" + namespace;
         this.initialCreator = initialCreator;
         this.defaultTtl = defaultTtl;
         this.defaultCaching = defaultCaching;
@@ -57,10 +57,10 @@ public class RediGoCollection<S extends RediGoObject.Snapshot, K, V extends Redi
         RedissonClient redissonClient = this.redigo.getRedissonClient();
         RediGoRedissonCodec<K, V> codec = new RediGoRedissonCodec<>(this.redigo, valueClass);
         MapOptions<K, V> options = MapOptions.<K, V>defaults().loader(this.persistence).writer(this.persistence).writeMode(MapOptions.WriteMode.WRITE_THROUGH);
-        this.redisMap = redissonClient.getMapCache(namespace, codec, options);
+        this.redisMap = redissonClient.getMapCache(this.redisNamespace, codec, options);
 
         // Create listener
-        this.createTopic = redissonClient.getTopic("%s_create_topic".formatted(this.namespace), codec);
+        this.createTopic = redissonClient.getTopic("%s_create_topic".formatted(this.redisNamespace), codec);
         this.createTopic.addListener(valueClass, (channel, value) -> {
             if (this.defaultCaching) {
                 this.localCache.put(value.getKey(), value.getSnapshot());
@@ -68,7 +68,7 @@ public class RediGoCollection<S extends RediGoObject.Snapshot, K, V extends Redi
         });
 
         // Update listener
-        this.updateTopic = redissonClient.getTopic("%s_update_topic".formatted(this.namespace), codec);
+        this.updateTopic = redissonClient.getTopic("%s_update_topic".formatted(this.redisNamespace), codec);
         this.updateTopic.addListener(valueClass, (charSequence, value) -> {
             if (this.defaultCaching || this.localCache.containsKey(value.getKey())) {
                 this.localCache.put(value.getKey(), value.getSnapshot());
@@ -257,6 +257,6 @@ public class RediGoCollection<S extends RediGoObject.Snapshot, K, V extends Redi
     }
 
     private RLock getLock(K key) {
-        return this.redigo.getRedissonClient().getLock(LOCK_PREFIX + this.namespace + key.toString());
+        return this.redigo.getRedissonClient().getLock(LOCK_PREFIX + this.redisNamespace + key.toString());
     }
 }
