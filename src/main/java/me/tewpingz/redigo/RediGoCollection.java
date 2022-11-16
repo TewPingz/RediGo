@@ -8,9 +8,7 @@ import org.redisson.api.*;
 import java.util.Collection;
 import java.util.Map;
 import java.util.Objects;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 import java.util.function.Function;
@@ -37,6 +35,8 @@ public class RediGoCollection<S extends RediGoObject.Snapshot, K, V extends Redi
     private final RTopic updateTopic;
     private final RTopic deleteTopic;
 
+    private final ExecutorService asyncExecutor;
+
     protected RediGoCollection(RediGo redigo, String namespace, Class<K> keyClass, Class<V> valueClass,
                                int defaultTtl, boolean defaultCaching, Function<K, V> initialCreator, Function<K, V> emptyCreator) {
         this.redigo = redigo;
@@ -59,6 +59,7 @@ public class RediGoCollection<S extends RediGoObject.Snapshot, K, V extends Redi
         RediGoRedissonCodec<K, V> codec = new RediGoRedissonCodec<>(this.redigo, valueClass);
         MapOptions<K, V> options = MapOptions.<K, V>defaults().loader(this.persistence).writer(this.persistence).writeMode(MapOptions.WriteMode.WRITE_THROUGH);
         this.redisMap = redissonClient.getMapCache(this.redisNamespace, codec, options);
+        this.asyncExecutor = Executors.newSingleThreadExecutor();
 
         // Create listener
         this.createTopic = redissonClient.getTopic("%s_create_topic".formatted(this.redisNamespace), codec);
@@ -107,7 +108,7 @@ public class RediGoCollection<S extends RediGoObject.Snapshot, K, V extends Redi
      * @return a completable future with the snapshot of the latest object that's has been cached.
      */
     public CompletableFuture<S> beginCachingOrUpdateLocallyAsync(K key) {
-        return CompletableFuture.supplyAsync(() -> this.beginCachingOrUpdateLocally(key));
+        return CompletableFuture.supplyAsync(() -> this.beginCachingOrUpdateLocally(key), this.asyncExecutor);
     }
 
     /**
@@ -212,7 +213,7 @@ public class RediGoCollection<S extends RediGoObject.Snapshot, K, V extends Redi
      * @return a completable future with a {@link RediGoObject.Snapshot} of the latest value.
      */
     public CompletableFuture<S> getOrCreateRealValueAsync(K key) {
-        return CompletableFuture.supplyAsync(() -> this.getOrCreateRealValue(key));
+        return CompletableFuture.supplyAsync(() -> this.getOrCreateRealValue(key), this.asyncExecutor);
     }
 
     /**
@@ -251,7 +252,7 @@ public class RediGoCollection<S extends RediGoObject.Snapshot, K, V extends Redi
      * @return a completable future with a snapshot of the latest value with the changes applied.
      */
     public CompletableFuture<S> updateRealValueAsync(K key, Consumer<V> consumer) {
-        return CompletableFuture.supplyAsync(() -> this.updateRealValue(key, consumer));
+        return CompletableFuture.supplyAsync(() -> this.updateRealValue(key, consumer), this.asyncExecutor);
     }
 
     /**
@@ -272,10 +273,10 @@ public class RediGoCollection<S extends RediGoObject.Snapshot, K, V extends Redi
      * @return a completable future to track when it's complete.
      */
     public CompletableFuture<Void> evictRealValueAsync(K key) {
-        return CompletableFuture.runAsync(() -> this.evictRealValue(key));
+        return CompletableFuture.runAsync(() -> this.evictRealValue(key), this.asyncExecutor);
     }
 
-    private  <T> T executeSafely(K key, Supplier<T> supplier) {
+    private <T> T executeSafely(K key, Supplier<T> supplier) {
         Objects.requireNonNull(key);
         Objects.requireNonNull(supplier);
 
@@ -283,7 +284,7 @@ public class RediGoCollection<S extends RediGoObject.Snapshot, K, V extends Redi
         T value = null;
 
         try {
-            // Use a timeout function to ensure we do not have a deadlock (image)
+            // Use a timeout function to ensure we do not have a deadlock (imagine)
             lock.lock(30, TimeUnit.SECONDS);
             value = supplier.get();
         } catch (Exception e) {
