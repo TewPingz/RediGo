@@ -92,19 +92,22 @@ public class RediGoCollection<S extends RediGoObject.Snapshot, K, V extends Redi
      * It is necessary you call this function asynchronously or call {@link RediGoCollection#beginCachingOrUpdateLocallyAsync(K)}
      *
      * @param key the key of the data to begin caching for.
+     * @return the snapshot of the latest value that has either been cached or updated.
      */
-    public void beginCachingOrUpdateLocally(K key) {
+    public S beginCachingOrUpdateLocally(K key) {
         Objects.requireNonNull(key);
-        this.localCache.put(key, this.getOrCreateRealValue(key));
+        S snapshot = this.getOrCreateRealValue(key);
+        this.localCache.put(key, snapshot);
+        return snapshot;
     }
 
     /**
      * Function to begin caching data locally asynchronously
      * @param key the key of the data to start caching
-     * @return a completable future to track if the task is complete or when it is.
+     * @return a completable future with the snapshot of the latest object that's has been cached.
      */
-    public CompletableFuture<Void> beginCachingOrUpdateLocallyAsync(K key) {
-        return CompletableFuture.runAsync(() -> this.beginCachingOrUpdateLocally(key));
+    public CompletableFuture<S> beginCachingOrUpdateLocallyAsync(K key) {
+        return CompletableFuture.supplyAsync(() -> this.beginCachingOrUpdateLocally(key));
     }
 
     /**
