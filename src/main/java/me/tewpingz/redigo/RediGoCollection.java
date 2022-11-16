@@ -35,6 +35,7 @@ public class RediGoCollection<S extends RediGoObject.Snapshot, K, V extends Redi
     private final Map<K, S> localCache;
     private final RTopic createTopic;
     private final RTopic updateTopic;
+    private final RTopic deleteTopic;
 
     protected RediGoCollection(RediGo redigo, String namespace, Class<K> keyClass, Class<V> valueClass,
                                int defaultTtl, boolean defaultCaching, Function<K, V> initialCreator, Function<K, V> emptyCreator) {
@@ -75,6 +76,10 @@ public class RediGoCollection<S extends RediGoObject.Snapshot, K, V extends Redi
             }
         });
 
+        // Delete listener
+        this.deleteTopic = redissonClient.getTopic("%s_delete_topic".formatted(this.redisNamespace), codec);
+        this.deleteTopic.addListener(valueClass, (charSequence, value) -> this.localCache.remove(value.getKey()));
+
         // Cache all values if default caching is enabled
         if (this.defaultCaching) {
             this.persistence.loadAllKeys().forEach(this::beginCachingLocally);
@@ -90,6 +95,11 @@ public class RediGoCollection<S extends RediGoObject.Snapshot, K, V extends Redi
      */
     public void beginCachingLocally(K key) {
         Objects.requireNonNull(key);
+
+        if (this.isValueCached(key)) {
+            throw new IllegalStateException("The value is already cached");
+        }
+
         this.localCache.put(key, this.getOrCreateRealValue(key));
     }
 
@@ -100,6 +110,29 @@ public class RediGoCollection<S extends RediGoObject.Snapshot, K, V extends Redi
      */
     public CompletableFuture<Void> beginCachingLocallyAsync(K key) {
         return CompletableFuture.runAsync(() -> this.beginCachingLocally(key));
+    }
+
+    /**
+     * Function to update the currently cached value
+     * @param key the key of the object to update
+     */
+    public void updateCachedValue(K key) {
+        Objects.requireNonNull(key);
+
+        if (!this.isValueCached(key)) {
+            throw new IllegalStateException("The value is not cached");
+        }
+
+        this.localCache.put(key, this.getOrCreateRealValue(key));
+    }
+
+    /**
+     * Function that allows you to update a cached value
+     * @param key the key to update
+     * @return a completable future for the runnable being run
+     */
+    public CompletableFuture<Void> updateCachedValueAsync(K key) {
+        return CompletableFuture.runAsync(() -> this.updateCachedValue(key));
     }
 
     /**
@@ -129,6 +162,16 @@ public class RediGoCollection<S extends RediGoObject.Snapshot, K, V extends Redi
     public S getCachedValued(K key) {
         Objects.requireNonNull(key);
         return this.localCache.get(key);
+    }
+
+    /**
+     * Function that allows you to check if a value is cached
+     * @param key the key of the value to check for
+     * @return whether the value is cached or not.
+     */
+    public boolean isValueCached(K key) {
+        Objects.requireNonNull(key);
+        return this.localCache.containsKey(key);
     }
 
     /**
@@ -234,6 +277,29 @@ public class RediGoCollection<S extends RediGoObject.Snapshot, K, V extends Redi
      */
     public CompletableFuture<S> updateRealValueAsync(K key, Consumer<V> consumer) {
         return CompletableFuture.supplyAsync(() -> this.updateRealValue(key, consumer));
+    }
+
+    /**
+     * A function to be able to evict an element, basically the ability
+     * to delete a value from the redis map and the mongo database
+     * @param key the key to remove
+     */
+    public void evictRealValue(K key) {
+        V value = this.executeSafely(key, () -> this.redisMap.remove(key));
+        if (value != null) {
+            this.deleteTopic.publish(value);
+        }
+    }
+
+    /**
+     * A function to be able to evict an element, basically the ability
+     * to delete a value from the redis map and the mongo database
+     * This function is run asynchronously
+     * @param key the key of the object being evicted
+     * @return a completable future to track when it's complete.
+     */
+    public CompletableFuture<Void> evictRealValueAsync(K key) {
+        return CompletableFuture.runAsync(() -> this.evictRealValue(key));
     }
 
     private  <T> T executeSafely(K key, Supplier<T> supplier) {
