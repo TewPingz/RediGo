@@ -77,8 +77,8 @@ public class RediGoCollection<S extends RediGoObject.Snapshot, K, V extends Redi
         });
 
         // Delete listener
-        this.deleteTopic = redissonClient.getTopic("%s_delete_topic".formatted(this.redisNamespace), codec);
-        this.deleteTopic.addListener(valueClass, (charSequence, value) -> this.localCache.remove(value.getKey()));
+        this.deleteTopic = redissonClient.getTopic("%s_delete_topic".formatted(this.redisNamespace));
+        this.deleteTopic.addListener(keyClass, (charSequence, value) -> this.localCache.remove(value));
 
         // Cache all values if default caching is enabled
         if (this.defaultCaching) {
@@ -260,10 +260,8 @@ public class RediGoCollection<S extends RediGoObject.Snapshot, K, V extends Redi
      * @param key the key to remove
      */
     public void evictRealValue(K key) {
-        V value = this.executeSafely(key, () -> this.redisMap.remove(key));
-        if (value != null) {
-            this.deleteTopic.publish(value);
-        }
+        this.executeSafely(key, () -> this.redisMap.fastRemove(key));
+        this.deleteTopic.publish(key);
     }
 
     /**
