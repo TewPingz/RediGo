@@ -115,24 +115,27 @@ public class RediGoCollection<S extends RediGoObject.Snapshot, K, V extends Redi
     /**
      * Function to update the currently cached value
      * @param key the key of the object to update
+     * @return a snapshot of the value that has been cached
      */
-    public void updateCachedValue(K key) {
+    public S updateCachedValue(K key) {
         Objects.requireNonNull(key);
 
         if (!this.isValueCached(key)) {
             throw new IllegalStateException("The value is not cached");
         }
 
-        this.localCache.put(key, this.getOrCreateRealValue(key));
+        S snapshot = this.getOrCreateRealValue(key);
+        this.localCache.put(key, snapshot);
+        return snapshot;
     }
 
     /**
      * Function that allows you to update a cached value
      * @param key the key to update
-     * @return a completable future for the runnable being run
+     * @return a completable future with the snapshot of the latest object
      */
-    public CompletableFuture<Void> updateCachedValueAsync(K key) {
-        return CompletableFuture.runAsync(() -> this.updateCachedValue(key));
+    public CompletableFuture<S> updateCachedValueAsync(K key) {
+        return CompletableFuture.supplyAsync(() -> this.updateCachedValue(key));
     }
 
     /**
