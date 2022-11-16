@@ -82,24 +82,19 @@ public class RediGoCollection<S extends RediGoObject.Snapshot, K, V extends Redi
 
         // Cache all values if default caching is enabled
         if (this.defaultCaching) {
-            this.persistence.loadAllKeys().forEach(this::beginCachingLocally);
+            this.persistence.loadAllKeys().forEach(this::beginCachingOrUpdateLocally);
         }
     }
 
     /**
      * Function to begin caching data locally
      * This function will make a get request from the database to get the latest value
-     * It is necessary you call this function asynchronously or call {@link RediGoCollection#beginCachingLocallyAsync(K)}
+     * It is necessary you call this function asynchronously or call {@link RediGoCollection#beginCachingOrUpdateLocallyAsync(K)}
      *
      * @param key the key of the data to begin caching for.
      */
-    public void beginCachingLocally(K key) {
+    public void beginCachingOrUpdateLocally(K key) {
         Objects.requireNonNull(key);
-
-        if (this.isValueCached(key)) {
-            throw new IllegalStateException("The value is already cached");
-        }
-
         this.localCache.put(key, this.getOrCreateRealValue(key));
     }
 
@@ -108,34 +103,8 @@ public class RediGoCollection<S extends RediGoObject.Snapshot, K, V extends Redi
      * @param key the key of the data to start caching
      * @return a completable future to track if the task is complete or when it is.
      */
-    public CompletableFuture<Void> beginCachingLocallyAsync(K key) {
-        return CompletableFuture.runAsync(() -> this.beginCachingLocally(key));
-    }
-
-    /**
-     * Function to update the currently cached value
-     * @param key the key of the object to update
-     * @return a snapshot of the value that has been cached
-     */
-    public S updateCachedValue(K key) {
-        Objects.requireNonNull(key);
-
-        if (!this.isValueCached(key)) {
-            throw new IllegalStateException("The value is not cached");
-        }
-
-        S snapshot = this.getOrCreateRealValue(key);
-        this.localCache.put(key, snapshot);
-        return snapshot;
-    }
-
-    /**
-     * Function that allows you to update a cached value
-     * @param key the key to update
-     * @return a completable future with the snapshot of the latest object
-     */
-    public CompletableFuture<S> updateCachedValueAsync(K key) {
-        return CompletableFuture.supplyAsync(() -> this.updateCachedValue(key));
+    public CompletableFuture<Void> beginCachingOrUpdateLocallyAsync(K key) {
+        return CompletableFuture.runAsync(() -> this.beginCachingOrUpdateLocally(key));
     }
 
     /**
