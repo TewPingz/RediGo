@@ -15,72 +15,111 @@ MongoDB to fetch the last model that was left by the redis instance.
 
 #### Create RediGo instance
 ```java
-    Redigo redigo = new Redigo("namespace", mongoClient, redissonClient, gson);
+    new RediGo("core", mongoClient, redissonClient, gson);
 ```
 
 #### Create a RediGo object
 ```java
-    @AllArgsConstructor
-    @RequiredArgsConstructor
-    public class TestObject implements RedigoObject<String> {
+@Data
+@RequiredArgsConstructor
+public class AltEntry implements RediGoObject<String, AltEntry.AltProfileSnapshot> {
 
-        private final String key;
+    private final String hashedIp;
 
-        @RedigoValue(key = "thisIsTheKeyInTheObject")
-        private String name;
+    @RediGoValue(key = "relatedIds")
+    private Set<UUID> relatedIds = new HashSet<>();
 
-        @Override
-        public String getKey() {
-            return key;
-        }
+    public void addUuid(UUID uuid) {
+        this.relatedIds.add(uuid);
     }
+
+    @Override
+    public String getKey() {
+        return this.hashedIp;
+    }
+
+    @Override
+    public AltProfileSnapshot getSnapshot() {
+        return new AltProfileSnapshot(this.hashedIp, this.relatedIds);
+    }
+
+    @Data
+    @RequiredArgsConstructor
+    public static class AltProfileSnapshot implements Snapshot {
+        private final String hashedIp;
+        private final Set<UUID> relatedIds;
+    }
+}
+
 ```
 
 #### Create a RediGo collection
 ```java
-    RedigoCollection<String, TestObject> collection = redigo.createCollection("namespace", String.class, TestObject.class, 30, TestObject::new);
+   redigoInstance.createCollection("alts", String.class, AltEntry.class, 30, false, AltEntry::new);
 ```
 
 #### Get a RediGo real time object from the collection
 ```java
-    TestObject object = collection.getOrCreateRealValue("itemKey");
+    public AltEntry.AltProfileSnapshot getAlts(String hashedIp) {
+        return this.collection.getOrCreateRealValue(hashedIp);
+    }
 ```
 
 #### Update a RediGo real time object from the collection
 ```java
-    collection.updateRealValue("itemKey", bridgeObj -> {
-        bridgeObj.name = "HelloWorld";
-    });
+    public AltEntry.AltProfileSnapshot addUuid(String hashedIp, UUID uuid) {
+        return this.collection.updateRealValue(hashedIp, altEntry -> altEntry.addUuid(uuid));
+    }
 ```
 #### This is an example setup of RediGo
 ```java
-    public class Main {
-        public static void main(String[] args) {
-            RedissonClient redissonClient = Redisson.create();
-            MongoClient mongoClient = MongoClients.create();
-            Gson gson = new GsonBuilder().create();
-    
-            Redigo redigo = new Redigo("namespace", mongoClient, redissonClient, gson);
-            RedigoCollection<String, TestObject> collection = redigo.createCollection("namespace", String.class, TestObject.class, 30, TestObject::new);
-    
-            collection.updateRealValue("itemKey", bridgeObj -> {
-                bridgeObj.name = "HelloWorld";
-            });
-        }
-    
-        @AllArgsConstructor
-        @RequiredArgsConstructor
-        public static class TestObject implements RedigoObject<String> {
-    
-            private final String key;
-    
-            @RedigoValue(key = "thisIsTheKeyInTheObject")
-            private String name;
-    
-            @Override
-            public String getKey() {
-                return key;
-            }
-        }
+public class AltManager {
+
+    private final RediGoCollection<AltEntry.AltProfileSnapshot, String, AltEntry> collection;
+
+    public AltManager(Core instance) {
+        this.collection = instance.getRediGo().createCollection("alts", String.class, AltEntry.class, 30, false, AltEntry::new);
     }
+
+    public AltEntry.AltProfileSnapshot addUuid(String hashedIp, UUID uuid) {
+        return this.collection.updateRealValue(hashedIp, altEntry -> altEntry.addUuid(uuid));
+    }
+
+    public AltEntry.AltProfileSnapshot getAlts(String hashedIp) {
+        return this.collection.getOrCreateRealValue(hashedIp);
+    }
+}
+```
+
+```java
+@Data
+@RequiredArgsConstructor
+public class AltEntry implements RediGoObject<String, AltEntry.AltProfileSnapshot> {
+
+    private final String hashedIp;
+
+    @RediGoValue(key = "relatedIds")
+    private Set<UUID> relatedIds = new HashSet<>();
+
+    public void addUuid(UUID uuid) {
+        this.relatedIds.add(uuid);
+    }
+
+    @Override
+    public String getKey() {
+        return this.hashedIp;
+    }
+
+    @Override
+    public AltProfileSnapshot getSnapshot() {
+        return new AltProfileSnapshot(this.hashedIp, this.relatedIds);
+    }
+
+    @Data
+    @RequiredArgsConstructor
+    public static class AltProfileSnapshot implements Snapshot {
+        private final String hashedIp;
+        private final Set<UUID> relatedIds;
+    }
+}
 ```
