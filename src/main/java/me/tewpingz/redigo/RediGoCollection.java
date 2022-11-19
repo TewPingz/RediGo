@@ -17,16 +17,12 @@ import java.util.function.Supplier;
 public class RediGoCollection<S extends RediGoObject.Snapshot, K, V extends RediGoObject<K, S>> {
     private static final String LOCK_PREFIX = "LOCK_";
 
-    private final RediGo redigo;
-    private final String redisNamespace;
     private final Function<K, V> initialCreator;
 
     // Configurations
     private final boolean defaultCaching;
     private final int defaultTtl;
 
-    // Redis caches
-    private final RediGoPersistence<K, V> persistence;
     private final RMapCache<K, V> redisMap;
 
     // Redis local caches
@@ -41,8 +37,7 @@ public class RediGoCollection<S extends RediGoObject.Snapshot, K, V extends Redi
 
     protected RediGoCollection(RediGo redigo, String namespace, Class<K> keyClass, Class<V> valueClass,
                                int defaultTtl, boolean defaultCaching, Function<K, V> initialCreator, Function<K, V> emptyCreator) {
-        this.redigo = redigo;
-        this.redisNamespace = redigo.getNamespace() + "_" + namespace;
+        String redisNamespace = redigo.getNamespace() + "_" + namespace;
         this.initialCreator = initialCreator;
         this.defaultTtl = defaultTtl;
         this.defaultCaching = defaultCaching;
@@ -56,16 +51,17 @@ public class RediGoCollection<S extends RediGoObject.Snapshot, K, V extends Redi
         redigo.setGson(redigo.getGson().newBuilder().registerTypeAdapter(valueClass, gsonCodec).create());
 
         // Set up our redis map with persistence
-        this.persistence = new RediGoPersistence<>(redigo, valueClass, namespace);
-        RedissonClient redissonClient = this.redigo.getRedissonClient();
-        RediGoRedissonCodec<K, V> codec = new RediGoRedissonCodec<>(this.redigo, valueClass);
-        MapOptions<K, V> options = MapOptions.<K, V>defaults().loader(this.persistence).writer(this.persistence).writeMode(MapOptions.WriteMode.WRITE_THROUGH);
-        this.redisMap = redissonClient.getMapCache(this.redisNamespace, codec, options);
-        this.lock = redissonClient.getFairLock("%s_lock".formatted(this.redisNamespace));
+        // Redis caches
+        RediGoPersistence<K, V> persistence = new RediGoPersistence<>(redigo, valueClass, namespace);
+        RedissonClient redissonClient = redigo.getRedissonClient();
+        RediGoRedissonCodec<K, V> codec = new RediGoRedissonCodec<>(redigo, valueClass);
+        MapOptions<K, V> options = MapOptions.<K, V>defaults().loader(persistence).writerAsync(persistence).writeMode(MapOptions.WriteMode.WRITE_THROUGH);
+        this.redisMap = redissonClient.getMapCache(redisNamespace, codec, options);
+        this.lock = redissonClient.getFairLock("%s_lock".formatted(redisNamespace));
         this.asyncExecutor = Executors.newSingleThreadExecutor();
 
         // Create listener
-        this.createTopic = redissonClient.getTopic("%s_create_topic".formatted(this.redisNamespace), codec);
+        this.createTopic = redissonClient.getTopic("%s_create_topic".formatted(redisNamespace), codec);
         this.createTopic.addListener(valueClass, (channel, value) -> {
             if (this.defaultCaching) {
                 this.localCache.put(value.getKey(), value.getSnapshot());
@@ -73,7 +69,7 @@ public class RediGoCollection<S extends RediGoObject.Snapshot, K, V extends Redi
         });
 
         // Update listener
-        this.updateTopic = redissonClient.getTopic("%s_update_topic".formatted(this.redisNamespace), codec);
+        this.updateTopic = redissonClient.getTopic("%s_update_topic".formatted(redisNamespace), codec);
         this.updateTopic.addListener(valueClass, (charSequence, value) -> {
             if (this.defaultCaching || this.localCache.containsKey(value.getKey())) {
                 this.localCache.put(value.getKey(), value.getSnapshot());
@@ -81,12 +77,12 @@ public class RediGoCollection<S extends RediGoObject.Snapshot, K, V extends Redi
         });
 
         // Delete listener
-        this.deleteTopic = redissonClient.getTopic("%s_delete_topic".formatted(this.redisNamespace));
+        this.deleteTopic = redissonClient.getTopic("%s_delete_topic".formatted(redisNamespace));
         this.deleteTopic.addListener(keyClass, (charSequence, value) -> this.localCache.remove(value));
 
         // Cache all values if default caching is enabled
         if (this.defaultCaching) {
-            this.persistence.loadAllKeys().forEach(this::beginCachingOrUpdateLocally);
+            persistence.loadAllKeys().forEach(this::beginCachingOrUpdateLocally);
         }
     }
 

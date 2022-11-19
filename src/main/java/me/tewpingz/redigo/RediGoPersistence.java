@@ -11,16 +11,19 @@ import me.tewpingz.redigo.codec.RediGoMongoCodec;
 import me.tewpingz.redigo.data.RediGoObject;
 import org.bson.codecs.configuration.CodecRegistries;
 import org.bson.codecs.configuration.CodecRegistry;
+import org.redisson.api.AsyncIterator;
 import org.redisson.api.map.MapLoader;
-import org.redisson.api.map.MapWriter;
+import org.redisson.api.map.MapWriterAsync;
 
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
 
 @Getter
-public class RediGoPersistence<K, V extends RediGoObject<K, ?>> implements MapWriter<K, V>, MapLoader<K, V> {
+public class RediGoPersistence<K, V extends RediGoObject<K, ?>> implements MapWriterAsync<K, V>, MapLoader<K, V> {
     private static final ReplaceOptions REPLACE_OPTIONS = new ReplaceOptions().upsert(true);
 
     private final RediGo redigo;
@@ -54,23 +57,28 @@ public class RediGoPersistence<K, V extends RediGoObject<K, ?>> implements MapWr
         return this.mongoCollection.find().map(RediGoObject::getKey);
     }
 
+
     @Override
-    public void write(Map<K, V> map) {
-        List<ReplaceOneModel<V>> bulk = new ArrayList<>();
-        map.values().forEach(value -> bulk.add(new ReplaceOneModel<>(Filters.eq(value.getKey().toString()), value, REPLACE_OPTIONS)));
-        if (bulk.isEmpty()) {
-            return;
-        }
-        this.mongoCollection.bulkWrite(bulk);
+    public CompletionStage<Void> write(Map<K, V> map) {
+        return CompletableFuture.runAsync(() -> {
+            List<ReplaceOneModel<V>> bulk = new ArrayList<>();
+            map.values().forEach(value -> bulk.add(new ReplaceOneModel<>(Filters.eq(value.getKey().toString()), value, REPLACE_OPTIONS)));
+            if (bulk.isEmpty()) {
+                return;
+            }
+            this.mongoCollection.bulkWrite(bulk);
+        });
     }
 
     @Override
-    public void delete(Collection<K> collection) {
-        List<DeleteOneModel<V>> bulk = new ArrayList<>();
-        collection.forEach(key -> bulk.add(new DeleteOneModel<>(Filters.eq(key.toString()))));
-        if (bulk.isEmpty()) {
-            return;
-        }
-        this.mongoCollection.bulkWrite(bulk);
+    public CompletionStage<Void> delete(Collection<K> keys) {
+        return CompletableFuture.runAsync(() -> {
+            List<DeleteOneModel<V>> bulk = new ArrayList<>();
+            keys.forEach(key -> bulk.add(new DeleteOneModel<>(Filters.eq(key.toString()))));
+            if (bulk.isEmpty()) {
+                return;
+            }
+            this.mongoCollection.bulkWrite(bulk);
+        });
     }
 }
