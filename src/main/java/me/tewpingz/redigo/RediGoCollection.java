@@ -35,6 +35,8 @@ public class RediGoCollection<S extends RediGoObject.Snapshot, K, V extends Redi
     private final RTopic updateTopic;
     private final RTopic deleteTopic;
 
+    // lock
+    private final RLock lock;
     private final ExecutorService asyncExecutor;
 
     protected RediGoCollection(RediGo redigo, String namespace, Class<K> keyClass, Class<V> valueClass,
@@ -59,6 +61,7 @@ public class RediGoCollection<S extends RediGoObject.Snapshot, K, V extends Redi
         RediGoRedissonCodec<K, V> codec = new RediGoRedissonCodec<>(this.redigo, valueClass);
         MapOptions<K, V> options = MapOptions.<K, V>defaults().loader(this.persistence).writer(this.persistence).writeMode(MapOptions.WriteMode.WRITE_THROUGH);
         this.redisMap = redissonClient.getMapCache(this.redisNamespace, codec, options);
+        this.lock = redissonClient.getFairLock("%s_lock".formatted(this.redisNamespace));
         this.asyncExecutor = Executors.newSingleThreadExecutor();
 
         // Create listener
@@ -261,7 +264,7 @@ public class RediGoCollection<S extends RediGoObject.Snapshot, K, V extends Redi
      * @param key the key to remove
      */
     public void evictRealValue(K key) {
-        this.executeSafely(key, () -> this.redisMap.fastRemove(key));
+        this.executeSafely(key, () -> this.redisMap.remove(key));
         this.deleteTopic.publish(key);
     }
 
@@ -280,25 +283,21 @@ public class RediGoCollection<S extends RediGoObject.Snapshot, K, V extends Redi
         Objects.requireNonNull(key);
         Objects.requireNonNull(supplier);
 
-        RLock lock = this.getLock(key);
         T value = null;
 
         try {
             // Use a timeout function to ensure we do not have a deadlock (imagine)
-            lock.lock(30, TimeUnit.SECONDS);
+            this.lock.lock(30, TimeUnit.SECONDS);
             value = supplier.get();
+            this.lock.unlock();
         } catch (Exception e) {
             e.printStackTrace();
         } finally {
-            if (lock.isLocked() && lock.isHeldByCurrentThread()) {
-                lock.unlock();
+            if (this.lock.isLocked() && this.lock.isHeldByCurrentThread()) {
+                this.lock.unlock();
             }
         }
 
         return value;
-    }
-
-    private RLock getLock(K key) {
-        return this.redigo.getRedissonClient().getLock(LOCK_PREFIX + this.redisNamespace + key.toString());
     }
 }
