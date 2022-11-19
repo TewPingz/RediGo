@@ -188,6 +188,19 @@ public class RediGoCollection<S extends RediGoObject.Snapshot, K, V extends Redi
     }
 
     /**
+     * Function to get the current data
+     * Keep in mind this function does not create the data, so it can return null
+     * This function is ran async
+     *
+     * @param key the key of the data to find
+     * @return a completable future with a {@link RediGoObject.Snapshot} of the latest value.
+     */
+    public CompletableFuture<S> getLatestValueAsync(K key) {
+        Objects.requireNonNull(key);
+        return CompletableFuture.supplyAsync(() -> this.getLatestValue(key));
+    }
+
+    /**
      * Function to get data with locks to ensure reliability of {@link RediGoObject}
      * This means the data returned by {@link RediGoObject} is the most recent data on the servers
      *
