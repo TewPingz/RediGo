@@ -123,3 +123,6 @@ public class AltEntry implements RediGoObject<String, AltEntry.AltProfileSnapsho
     }
 }
 ```
+
+#### For more examples check out
+* [Core](https://www.github.com/TewPingz/Core)
