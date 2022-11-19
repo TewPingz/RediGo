@@ -290,7 +290,9 @@ public class RediGoCollection<S extends RediGoObject.Snapshot, K, V extends Redi
         } catch (Exception e) {
             e.printStackTrace();
         } finally {
-            lock.unlock();
+            if (lock.isLocked() && lock.isHeldByCurrentThread()) {
+                lock.unlock();
+            }
         }
 
         return value;

@@ -58,6 +58,9 @@ public class RediGoPersistence<K, V extends RediGoObject<K, ?>> implements MapWr
     public void write(Map<K, V> map) {
         List<ReplaceOneModel<V>> bulk = new ArrayList<>();
         map.values().forEach(value -> bulk.add(new ReplaceOneModel<>(Filters.eq(value.getKey().toString()), value, REPLACE_OPTIONS)));
+        if (bulk.isEmpty()) {
+            return;
+        }
         this.mongoCollection.bulkWrite(bulk);
     }
 
@@ -65,6 +68,9 @@ public class RediGoPersistence<K, V extends RediGoObject<K, ?>> implements MapWr
     public void delete(Collection<K> collection) {
         List<DeleteOneModel<V>> bulk = new ArrayList<>();
         collection.forEach(key -> bulk.add(new DeleteOneModel<>(Filters.eq(key.toString()))));
+        if (bulk.isEmpty()) {
+            return;
+        }
         this.mongoCollection.bulkWrite(bulk);
     }
 }
