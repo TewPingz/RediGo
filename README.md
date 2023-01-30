@@ -1,14 +1,11 @@
 # RediGo
 
-A way to ensure concurrency when editing data through multiple instance. 
-It uses data to communicate with data and stores information in redis for the
-desired amount of time. But don't worry, when the data is no longer in redis it uses
-MongoDB to fetch the last model that was left by the redis instance.
+A way to ensure fetching / editing real data from the database by storing objects temporarily in redis and persisting them with MongoDB
 
 ### TLDR
 * Uses MongoDB to persist data
-* Uses Redis to store recently changed data for the amount you set
-* Uses Redis locks to allow you to get the most recent version of data and ONLY allows you to edit the most recent versions of data so you can never override with old data
+* Uses Redis to store recently changed data for the amount of time you set
+* Uses Redis locks to edit real time data.
 * This will fix issues where data may not be the most recent when switching to difference instances quickly
 
 ## How to use RediGo
